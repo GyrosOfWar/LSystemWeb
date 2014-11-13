@@ -19,11 +19,15 @@ namespace LSystemWeb.Models {
         private Stack<Turtle> stack;
         private StringBuilder svgString;
 
-        Turtle(Point start) {
-            position = start;
+        public Turtle(int xStart, int yStart) {
+            position = new Point(xStart, yStart);
             angle = 0.0;
             stack = new Stack<Turtle>();
             svgString = new StringBuilder();
+        }
+
+        public string GetSvgString() {
+            return svgString.ToString();
         }
 
         public void Forward(double distance) {
@@ -53,6 +57,13 @@ namespace LSystemWeb.Models {
     public class LSystem {
         private string axiom;
         private Dictionary<char, string> rules;
+        private double angle;
+
+        public LSystem(string axiom, Dictionary<char, string> rules, double angle) {
+            this.axiom = axiom;
+            this.rules = rules;
+            this.angle = angle;
+        }
 
         public string Step(int iterations) {
             var state = axiom;
@@ -64,10 +75,41 @@ namespace LSystemWeb.Models {
             return state;
         }
 
+        public string ToSvg(string state, int width, int height, int distance) {
+            var svg = new StringBuilder();
+            svg.AppendFormat("<svg height='{0}' width='{1}'>", width, height);
+            var turtle = new Turtle(0, 0);
+
+            foreach (var ch in state) {
+                switch(ch) {
+                    case 'F':
+                        turtle.Forward(distance);
+                        break;
+                    case '+':
+                        turtle.Rotate(angle);
+                        break;
+                    case '-':
+                        turtle.Rotate(-angle);
+                        break;
+                    case '[':
+                        turtle.Push();
+                        break;
+                    case ']':
+                        turtle.Pop();
+                        break;
+                }
+            }
+
+            svg.AppendFormat("<path d='{0}' />", turtle.GetSvgString());
+
+            svg.Append("</svg>");
+            return svg.ToString();
+        }
+
         private string StepOnce(string state) {
             var newState = new StringBuilder();
 
-            for (char c in state) {
+            foreach (char c in state) {
                 if (rules.ContainsKey(c)) {
                     newState.Append(rules[c]);
                 } else {
