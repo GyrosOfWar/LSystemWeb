@@ -1,19 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
-using System.Drawing;
 using System.Linq;
 using System.Text;
-using MoreLinq;
 
 namespace LSystemWeb.Models {
     internal struct Vector {
         public static readonly Vector Zero = new Vector(0, 0);
 
         public static readonly Vector One = new Vector(1, 1);
-        public readonly int X, Y;
+        public readonly double X, Y;
 
-        public Vector(int X, int Y) {
+        public Vector(double X, double Y) {
             this.X = X;
             this.Y = Y;
         }
@@ -34,7 +31,7 @@ namespace LSystemWeb.Models {
             return "[" + X + ", " + Y + "]";
         }
 
-        public int Dot(Vector that) {
+        public double Dot(Vector that) {
             return X * that.X + Y * that.Y;
         }
 
@@ -50,11 +47,11 @@ namespace LSystemWeb.Models {
             return new Vector(a.X * b.X, a.Y * b.Y);
         }
 
-        public static Vector operator *(Vector a, int b) {
+        public static Vector operator *(Vector a, double b) {
             return new Vector(a.X * b, a.Y * b);
         }
 
-        public static Vector operator +(Vector a, int b) {
+        public static Vector operator +(Vector a, double b) {
             return new Vector(a.X + b, a.Y + b);
         }
 
@@ -67,71 +64,107 @@ namespace LSystemWeb.Models {
         }
     }
 
+    internal interface TurtleAction {
+    }
+
+    internal class TurtleForward: TurtleAction {
+        public TurtleForward(Vector newVector) {
+            NewVector = newVector;
+        }
+
+        public Vector NewVector { get; private set; }
+    }
+
+    internal class TurtleRotate: TurtleAction {
+        public TurtleRotate(double newAngle) {
+            NewAngle = newAngle;
+        }
+
+        public double NewAngle { get; private set; }
+    }
+
+    internal class TurtlePush: TurtleAction {
+        public TurtlePush(Vector savedPosition, double savedAngle) {
+            SavedAngle = savedAngle;
+            SavedPosition = savedPosition;
+        }
+
+        public Vector SavedPosition { get; private set; }
+        public double SavedAngle { get; private set; }
+    }
+
+    internal class TurtlePop: TurtleAction {
+        public TurtlePop(Vector restoredPosition, double restoredAngle) {
+            RestoredAngle = restoredAngle;
+            RestoredPosition = restoredPosition;
+        }
+
+        public Vector RestoredPosition { get; private set; }
+        public double RestoredAngle { get; private set; }
+    }
+
     internal class Turtle {
-        public readonly double Angle;
-        public readonly Color DrawColor;
-        //TODO Problem: SVG string is written when position is still unclear. Might need to do two passes over turtles.
-        public readonly Vector Position;
-        public readonly ImmutableStack<Turtle> Stack;
-        public readonly string SvgString;
-        public readonly double xMax;
-        public readonly double xMin;
-        public readonly double yMax;
-        public readonly double yMin;
+        private readonly List<TurtleAction> actions;
+        private readonly Stack<Turtle> stack;
+        private double angle;
+        private double xPos;
+        private double yPos;
 
-        public Turtle(Vector pos, double angle, ImmutableStack<Turtle> stack, Color c, string svgString,
-                      double xMin, double xMax, double yMin, double yMax) {
-            Position = pos;
-            Angle = angle;
-            Stack = stack;
-            DrawColor = c;
-            SvgString = svgString;
-            this.xMin = xMin;
-            this.xMax = xMax;
-            this.yMin = yMin;
-            this.yMax = yMax;
+        public Turtle(double xStart, double yStart) {
+            xPos = xStart;
+            yPos = yStart;
+
+            angle = 0.0;
+            MaxX = double.MinValue;
+            MaxY = double.MinValue;
+            MinX = double.MaxValue;
+            MinY = double.MaxValue;
+
+            stack = new Stack<Turtle>();
+            actions = new List<TurtleAction>();
         }
 
-        public Turtle Forward(int distance) {
-            var newX = Math.Cos(Angle) * distance;
-            var newY = Math.Sin(Angle) * distance;
-            var newPos = Position + new Vector((int) newX, (int) newY);
-            var newSvgString = String.Format("{0} L {1} {2}", SvgString, Math.Round(newX), Math.Round(newY));
+        public double MaxX { get; private set; }
+        public double MinX { get; private set; }
+        public double MaxY { get; private set; }
+        public double MinY { get; private set; }
 
-            return new Turtle(newPos, Angle, Stack, DrawColor, newSvgString,
-                              Math.Min(xMin, newX), Math.Max(xMax, newX), Math.Min(yMin, newY), Math.Max(yMax, newY));
+        public void Forward(double distance) {
+            var newX = xPos + Math.Cos(angle) * distance;
+            var newY = yPos + Math.Sin(angle) * distance;
+            actions.Add(new TurtleForward(new Vector(newX, newY)));
+
+            MinX = Math.Min(MinX, newX);
+            MaxX = Math.Max(MaxX, newX);
+            MinY = Math.Min(MinY, newY);
+            MaxY = Math.Max(MaxY, newY);
+
+            xPos = newX;
+            yPos = newY;
         }
 
-        public Turtle Rotate(double rot) {
-            return new Turtle(Position, Angle + rot, Stack, DrawColor, SvgString,
-                              xMin, xMax, yMin, yMax);
+        public void Rotate(double x) {
+            angle += x;
+            actions.Add(new TurtleRotate(angle));
         }
 
-        public Turtle Pop() {
-            if (Stack.IsEmpty) {
-                throw new InvalidOperationException("Stack must not be empty when using Pop().");
-            }
+        public void Push() {
+            stack.Push(this);
 
-            var state = Stack.Peek();
-            var newSvgString = String.Format("{0} L {1} {2}", state.SvgString, state.Position.X, state.Position.Y);
-            return new Turtle(state.Position, state.Angle, Stack.Pop(), state.DrawColor, newSvgString,
-                              xMin, xMax, yMin, yMax);
+            actions.Add(new TurtlePush(new Vector(xPos, yPos), angle));
         }
 
-        public Turtle Push() {
-            var newStack = Stack.Push(this);
-            return new Turtle(Position, Angle, newStack, DrawColor, SvgString,
-                              xMin, xMax, yMin, yMax);
+        public void Pop() {
+            var p = stack.Pop();
+            actions.Add(new TurtlePop(new Vector(p.xPos, p.yPos), p.angle));
+
+            xPos = p.xPos;
+            yPos = p.yPos;
+            angle = p.angle;
         }
 
-        public Turtle ChangeColor(Color c) {
-            return new Turtle(Position, Angle, Stack, c, SvgString,
-                              xMin, xMax, yMin, yMax);
-        }
-
-        public Turtle NewWithPosition(Vector position) {
-            return new Turtle(position, Angle, Stack, DrawColor, SvgString,
-                              xMin, xMax, yMin, yMax);
+        public List<TurtleAction> GetAllActions() {
+            return actions;
         }
     }
 
@@ -170,6 +203,36 @@ namespace LSystemWeb.Models {
             }
         }
 
+        private static Dictionary<string, List<string>> svgCache = createSvgCache();
+
+        public static string GetSvg(string name, int iterations, int BorderSize = 2) {
+            if (svgCache.ContainsKey(name)) {
+                var svgs = svgCache[name];
+                if (iterations < svgs.Count) {
+                    return svgs[iterations];
+                } else {
+                    var lsys = LSystem.AllLSystems.First(l => l.Name == name);
+                    var state = lsys.Step(iterations);
+                    var svg = lsys.ToSvg(state, BorderSize);
+                    svgCache[name].Add(svg);
+
+                    return svg;
+                }
+            }
+            return null;
+        }
+
+        private static Dictionary<string, List<string>> createSvgCache() {
+            var all = AllLSystems;
+            return all.Select(ls => {
+                var svgs = Enumerable.Range(0, ls.MaxIterations).Select(i => {
+                    var state = ls.Step(i);
+                    return ls.ToSvg(state, 2);
+                });
+                return Tuple.Create(ls.Name, svgs.ToList());
+            }).ToDictionary(s => s.Item1, s => s.Item2);
+        }
+
         public string Step(int iterations) {
             var state = axiom;
 
@@ -181,39 +244,65 @@ namespace LSystemWeb.Models {
         }
 
         public string ToSvg(string state, int borderSize) {
-            var start = new Turtle(new Vector(0, 0), 0.0, ImmutableStack<Turtle>.Empty, Color.Black, "",
-                                   double.MinValue, double.MaxValue, double.MinValue, double.MaxValue);
+            var turtle = new Turtle(0.0, 0.0);
 
-            var turtles = state.Scan(start, (turtle, c) => {
+            foreach (var c in state) {
                 switch (c) {
                     case 'F':
-                        return turtle.Forward(5);
+                        turtle.Forward(5);
+                        break;
                     case '+':
-                        return turtle.Rotate(angle);
+                        turtle.Rotate(angle);
+                        break;
                     case '-':
-                        return turtle.Rotate(-angle);
+                        turtle.Rotate(-angle);
+                        break;
                     case '[':
-                        return turtle.Push();
+                        turtle.Push();
+                        break;
                     case ']':
-                        return turtle.Pop();
-                    default:
-                        return turtle;
+                        turtle.Pop();
+                        break;
                 }
-            }).ToList();
+            }
 
-            var last = turtles.Last();
-            //var xOff = Math.Abs(last.xMin) + borderSize;
-            //var yOff = Math.Abs(last.yMin) + borderSize;
+            var allActions = turtle.GetAllActions();
+            var offset = new Vector(Math.Abs(turtle.MinX) + borderSize, Math.Abs(turtle.MinY) + borderSize);
 
-            var offset = new Vector((int) Math.Abs(last.xMin) + borderSize, (int) Math.Abs(last.yMin) + borderSize);
-            var turtlesWithOffset = turtles.Select(t => t.NewWithPosition(t.Position + offset));
+            var strings = allActions.Where(a => a is TurtleForward || a is TurtlePop).Select(action => {
+                if (action is TurtleForward) {
+                    var forward = action as TurtleForward;
+                    var pos = forward.NewVector + offset;
 
-            var xSize = Math.Abs(last.xMin) + Math.Abs(last.xMax) + borderSize * 2;
-            var ySize = Math.Abs(last.yMin) + Math.Abs(last.yMax) + borderSize * 2;
+                    return String.Format("L {0} {1} ", Math.Round(pos.X), Math.Round(pos.Y));
+                }
+                else {
+                    var pop = action as TurtlePop;
+                    var pos = pop.RestoredPosition + offset;
 
+                    return String.Format("M {0} {1}", Math.Round(pos.X), Math.Round(pos.Y));
+                }
+            });
+
+            var xSize = Math.Abs(turtle.MinX) + Math.Abs(turtle.MaxX) + borderSize * 2;
+            var ySize = Math.Abs(turtle.MinY) + Math.Abs(turtle.MaxY) + borderSize * 2;
             var svg = new StringBuilder();
-            svg.AppendFormat("<svg height='{0}' width='{1}'>", ySize, xSize);
-            svg.AppendFormat("<path d='{0}' /></svg>", last.SvgString);
+            svg.AppendFormat("<svg height='{0}' width='{1}' id='svg'><path d='", Math.Round(ySize), Math.Round(xSize));
+
+            var firstForward = allActions.FirstOrDefault(a => a is TurtleForward);
+            if (firstForward == null) {
+                return "";
+            }
+
+            var firstPosition = ((TurtleForward) firstForward).NewVector + offset;
+
+            svg.AppendFormat("M {0} {1} ", Math.Round(firstPosition.X), Math.Round(firstPosition.Y));
+
+            foreach (var str in strings) {
+                svg.Append(str);
+            }
+
+            svg.Append("' stroke='black' fill='none' stroke-width='1' /> </svg>");
             return svg.ToString();
         }
 

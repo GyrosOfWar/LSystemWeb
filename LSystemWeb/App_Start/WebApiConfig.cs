@@ -16,7 +16,7 @@ namespace LSystemWeb
 
             config.Routes.MapHttpRoute(
                 name: "DefaultApi",
-                routeTemplate: "api/{controller}/{id}",
+                routeTemplate: "api/{controller}/{name}/{iterations}",
                 defaults: new { id = RouteParameter.Optional }
             );
         }
